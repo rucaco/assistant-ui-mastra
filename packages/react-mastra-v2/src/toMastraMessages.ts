@@ -1,53 +1,20 @@
 import type { ThreadMessage } from "@assistant-ui/react";
-
-/**
- * A simplified CoreMessage type compatible with Mastra's agent.stream() input.
- * Mastra accepts CoreMessage[] (AI SDK v5 ModelMessage format).
- */
-export type MastraCoreMessage =
-  | { role: "system"; content: string }
-  | { role: "user"; content: string | MastraUserContentPart[] }
-  | {
-      role: "assistant";
-      content: string | MastraAssistantContentPart[];
-    }
-  | {
-      role: "tool";
-      content: MastraToolResultPart[];
-    };
-
-type MastraUserContentPart =
-  | { type: "text"; text: string }
-  | { type: "image"; image: string }
-  | { type: "file"; data: string; mimeType: string };
-
-type MastraAssistantContentPart =
-  | { type: "text"; text: string }
-  | {
-      type: "tool-call";
-      toolCallId: string;
-      toolName: string;
-      args: Record<string, unknown>;
-    };
-
-type MastraToolResultPart = {
-  type: "tool-result";
-  toolCallId: string;
-  toolName: string;
-  result: unknown;
-  isError?: boolean;
-};
+import type { CoreMessage } from "@mastra/core";
 
 /**
  * Converts assistant-ui ThreadMessage[] to Mastra-compatible CoreMessage[].
+ *
+ * CoreMessage is re-exported by @mastra/core from the AI SDK. Mastra's
+ * agent.stream() accepts CoreMessage[] (among other formats) via its
+ * MessageListInput type.
  *
  * Tool calls and their results are split into separate assistant + tool
  * messages, matching the CoreMessage[] conversation structure Mastra expects.
  */
 export function toMastraMessages(
   messages: readonly ThreadMessage[],
-): MastraCoreMessage[] {
-  const result: MastraCoreMessage[] = [];
+): CoreMessage[] {
+  const result: CoreMessage[] = [];
 
   for (const message of messages) {
     switch (message.role) {
@@ -60,23 +27,28 @@ export function toMastraMessages(
       }
 
       case "user": {
-        const parts: MastraUserContentPart[] = [];
+        const userParts: Array<
+          | { type: "text"; text: string }
+          | { type: "image"; image: string }
+          | { type: "file"; data: string; mimeType: string }
+        > = [];
+
         for (const part of message.content) {
           switch (part.type) {
             case "text":
-              parts.push({ type: "text", text: part.text });
+              userParts.push({ type: "text", text: part.text });
               break;
             case "image":
-              parts.push({ type: "image", image: part.image });
+              userParts.push({ type: "image", image: part.image });
               break;
             case "file":
-              parts.push({
+              userParts.push({
                 type: "file",
                 data: part.data,
                 mimeType: part.mimeType,
               });
               break;
-            // audio parts are not supported by Mastra CoreMessage
+            // audio parts are not supported by CoreMessage
           }
         }
 
@@ -86,13 +58,13 @@ export function toMastraMessages(
             for (const part of attachment.content) {
               switch (part.type) {
                 case "text":
-                  parts.push({ type: "text", text: part.text });
+                  userParts.push({ type: "text", text: part.text });
                   break;
                 case "image":
-                  parts.push({ type: "image", image: part.image });
+                  userParts.push({ type: "image", image: part.image });
                   break;
                 case "file":
-                  parts.push({
+                  userParts.push({
                     type: "file",
                     data: part.data,
                     mimeType: part.mimeType,
@@ -104,10 +76,10 @@ export function toMastraMessages(
         }
 
         // Use simple string if only one text part
-        if (parts.length === 1 && parts[0]!.type === "text") {
-          result.push({ role: "user", content: parts[0]!.text });
+        if (userParts.length === 1 && userParts[0]!.type === "text") {
+          result.push({ role: "user", content: userParts[0]!.text });
         } else {
-          result.push({ role: "user", content: parts });
+          result.push({ role: "user", content: userParts } as CoreMessage);
         }
         break;
       }
@@ -115,8 +87,22 @@ export function toMastraMessages(
       case "assistant": {
         // Split assistant messages: text + tool-calls go in assistant message,
         // tool results go in a subsequent tool message.
-        const assistantParts: MastraAssistantContentPart[] = [];
-        const toolResults: MastraToolResultPart[] = [];
+        const assistantParts: Array<
+          | { type: "text"; text: string }
+          | {
+              type: "tool-call";
+              toolCallId: string;
+              toolName: string;
+              args: Record<string, unknown>;
+            }
+        > = [];
+        const toolResults: Array<{
+          type: "tool-result";
+          toolCallId: string;
+          toolName: string;
+          result: unknown;
+          isError?: boolean;
+        }> = [];
 
         for (const part of message.content) {
           switch (part.type) {
@@ -145,10 +131,13 @@ export function toMastraMessages(
         }
 
         if (assistantParts.length > 0) {
-          result.push({ role: "assistant", content: assistantParts });
+          result.push({
+            role: "assistant",
+            content: assistantParts,
+          } as CoreMessage);
         }
         if (toolResults.length > 0) {
-          result.push({ role: "tool", content: toolResults });
+          result.push({ role: "tool", content: toolResults } as CoreMessage);
         }
         break;
       }

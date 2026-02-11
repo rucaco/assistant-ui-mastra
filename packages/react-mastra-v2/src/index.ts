@@ -4,9 +4,8 @@ export { useMastraNativeRuntime } from "./useMastraNativeRuntime";
 // Adapter (for advanced usage / custom runtime composition)
 export { MastraNativeAdapter } from "./MastraNativeAdapter";
 
-// Message conversion utility
+// Message conversion utility (outputs CoreMessage[] from @mastra/core)
 export { toMastraMessages } from "./toMastraMessages";
-export type { MastraCoreMessage } from "./toMastraMessages";
 
 // Types
 export type {
